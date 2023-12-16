@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Visualization - Author Network</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" />
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style>
+        .tooltip {
+            position: fixed;
+            opacity: 0;
+            width: auto;
+            padding: 10px;
+            color: black;
+            font-family: sans-serif;
+            font-size: medium;
+            border-radius: 2px;
+            line-height: 1;
+        }
+
+        .accordion {
+            position: absolute;
+            right: 50px;
+            padding: 10px;
+            width: 240px;
+            float: right;
+            margin-right: 20px;
+            border: 1px solid black;
+        }
+
+        .legend-table {
+            float: left;
+            margin-left: 20px;
+            font-size: 12px;
+        }
+
+        .title-container {
+            text-align: center;
+        }
+
+        .svg-container {
+            display: block;
+            margin: auto;
+        }
+
+        #controlForm .form-label {
+            font-size: 15px;
+            color: black !important;
+        }
+
+        .btn-apply {
+            margin-top: 10px;
+            display: block;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body class="bg-black text-white ">
+    <div class="container mx-auto text-center pt-8 title-container">
+        <h1 class="text-4xl font-bold">Major Assignment 3</h1>
+        <hr class="border-b border-red-600 my-4 w-full mx-auto">
+    </div>
+
+    <div class="container mx-auto mt-4 p-4 bg-gray-800">
+        <div class="accordion" id="controlsAccordion">
+            <div class="accordion-item">
+                <h1 id="controlsHeading" style="text-align: center;">
+                    Controls
+                </h1>
+                <div id="controlsCollapse" class="accordion-collapse collapse show" aria-labelledby="controlsHeading"
+                    data-bs-parent="#controlsAccordion">
+                    <div class="accordion-body">
+                        <form id="controlForm">
+                            <label for="linkStrength" class="form-label">Link Strength</label>
+                            <input type="range" class="form-range" id="linkStrength" min="0" max="1" step="0.1"
+                                value="0.1">
+
+                            <label for="collideForce" class="form-label">Collide Force</label>
+                            <input type="range" class="form-range" id="collideForce" min="0" max="1" step="0.1"
+                                value="0.1">
+
+                            <label for="chargeForce" class="form-label">Charge Force</label>
+                            <input type="range" class="form-range" id="chargeForce" min="-100" max="0" step="1"
+                                value="-80">
+
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="nodeSize" id="publications"
+                                    value="publications" checked>
+                                <label class="form-check-label" for="publications">Node Size by Publications</label>
+                            </div>
+
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="nodeSize" id="degree" value="degree">
+                                <label class="form-check-label" for="degree">Node Size by Degree</label>
+                            </div>
+
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="nodeSize" id="citations"
+                                    value="citations">
+                                <label class="form-check-label" for="citations">Node Size by Citations</label>
+                            </div>
+                            <button type="button" class="btn btn-success btn-apply"
+                                onclick="applySettings()">Apply</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex justify-center items-center">
+        <svg class="svg-container" width="1250" height="1000"></svg>
+        <div id="tooltip"></div>
+    </div>
+
+    <script>
+        let svg;
+        let zoom;
+        let ForceSimulation;
+        let node_elements;
+        let link_elements;
+        let node_degree;
+        let scale_radius;
+        let data;
+        let color;
+        let countries;
+        let original_degree;
+        function zoomIn() {
+            if (zoom) {
+                svg.transition().call(zoom.scaleBy, 1.2);
+            }
+        }
+
+        function zoomOut() {
+            if (zoom) {
+                svg.transition().call(zoom.scaleBy, 0.8);
+            }
+        }
+
+        function resetVisualization() {
+            location.reload();
+        }
+
+        function applySettings() {
+            linkStrength = parseFloat(document.getElementById('linkStrength').value);
+            collideForce = parseFloat(document.getElementById('collideForce').value);
+            chargeForce = parseFloat(document.getElementById('chargeForce').value);
+            nodeSize = document.querySelector('input[name="nodeSize"]:checked').value;
+            console.log(linkStrength, collideForce, chargeForce)
+            ForceSimulation.force("link", d3.forceLink(data.links)
+                .id(d => d.id)
+                .distance(80)
+                .strength(linkStrength))
+            ForceSimulation.force("collide").strength(collideForce);
+            ForceSimulation.force("charge", d3.forceManyBody().strength(chargeForce))
+
+            node_elements.select("circle").attr("r", (d, i) => {
+                switch (nodeSize) {
+                    case "publications":
+                        node_degree = {}
+                        data.nodes.map((node, index) => {
+                            node_degree[data.nodes[index].id] = (data.nodes[index].publications).length
+                        })
+                        return scale_radius(node_degree[d['id']] * 1.2)
+                    case "degree":
+                        return scale_radius(original_degree[d['id']] * 1.2);
+                    case "citations":
+                        node_degree = {}
+                        data.nodes.forEach((node, index) => {
+                            const totalCitations = node.publications.reduce((sum, publication) => {
+                                console.log(typeof (publication))
+                                return sum + publication['Citations']
+                            }, 0);
+                            node_degree[data.nodes[index].id] = totalCitations;
+                        });
+                        return scale_radius(node_degree[d['id']] * 1.2);
+                    default:
+                        return scale_radius(node_degree[d['id']] * 1.2);
+                }
+            }).attr("fill", (d, i) => color(countries[i]));
+
+            ForceSimulation.nodes(data.nodes);
+            ForceSimulation.alpha(1).restart();
+        }
+
+        d3.json("./network-authors.json").then(jsonData => {
+            data = jsonData
+            svg = d3.select('svg').append("svg").attr("viewBox", "0 0 3000 3000")
+
+
+            const tooltip = d3.select("#tooltip")
+                .append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+
+            const width = parseInt(svg.attr("viewBox").split(' ')[2])
+            const height = parseInt(svg.attr("viewBox").split(' ')[3])
+            const main_group = svg.append("g").attr("transform", `translate(0, 50)`)
+            countries = data.nodes.map(node => {
+                const publications = node.publications;
+                if (publications && publications.length > 0) {
+                    return publications[0][Object.keys(publications[0])[0]].Country;
+                } else {
+                    return null;
+                }
+            });
+
+            zoom = d3.zoom()
+                .scaleExtent([0.5, 5])
+                .on("zoom", zoomed);
+
+            svg.call(zoom);
+
+            function zoomed() {
+                main_group.attr("transform", d3.event.transform);
+
+                svg.attr("transform", d3.event.transform);
+            }
+            const hexColors = [
+                '#b00800', '#6cdfd3', '#fda2ff', '#4cacd0', '#ffad08', '#000047',
+                '#80ff01', '#fbd300', '#90f394', '#e26df6', '#79d6a2', '#ae1200',
+                '#00a8a8', '#44009c', '#0aa50a', '#ac1661', '#00b353', '#97511f',
+                '#0036a5', '#966100', '#007e7e', '#740da7', '#001600', '#ff7934',
+                '#0bd9dc', '#380038', '#c1e479', '#ffc236', '#7aecff', '#14a69e',
+                '#ff57d6', '#434300', '#92a6c0', '#ffff3f', '#000000', '#b62b2b',
+                '#006363', '#de6363', '#3623a9', '#86ef86', '#760000', '#1a5688',
+                '#00a727', '#af6721', '#8e883c', '#a3f525', '#e300e3', '#ff914c',
+                '#8d42c4', '#deffff', '#571100', '#d23eff', '#5bf65b', '#4e0081',
+                '#cb991e', '#6b0cc3', '#127b12', '#ffd9b3', '#119a95', '#280028',
+                '#507070', '#ffa496', '#003189', '#003f00', '#aa1faa', '#5f0000'
+            ];
+
+            const nodesWithCountry = data.nodes.filter((node, index) => countries[index] !== null);
+            color = d3.scaleOrdinal(hexColors)
+                .domain(Array.from(new Set(countries.filter(country => country !== null))));
+
+            console.log(color)
+
+            node_degree = {};
+            d3.map(data.links, d => {
+                if (d.source in node_degree) {
+                    node_degree[d.source]++
+                }
+                else {
+                    node_degree[d.source] = 0
+                }
+                if (d.target in node_degree) {
+                    node_degree[d.target]++
+                }
+                else {
+                    node_degree[d.target] = 0
+                }
+            });
+
+            original_degree = node_degree;
+            scale_radius = d3.scaleLinear()
+                .domain(d3.extent(Object.values(node_degree)))
+                .range([5, 20]);
+
+
+            const scale_link_stroke_width = d3.scaleLinear()
+                .domain(d3.extent(data.links, d => d.year))
+                .range([1, 5])
+
+            link_elements = main_group.append("g")
+                .attr('transform', `translate(${width / 2},${height / 2})`)
+                .selectAll(".line")
+                .data(data.links)
+                .enter()
+                .append("line")
+                .style("stroke", (d) => "black")
+                .style("stroke-width", d => scale_link_stroke_width(10));
+
+
+            const drag = d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended);
+
+
+            node_elements = main_group.append("g")
+                .attr('transform', `translate(${width / 2},${height / 2})`)
+                .selectAll(".circle")
+                .data(data.nodes)
+                .enter()
+                .append('g')
+                .call(drag)
+                .on("mouseenter", function (d, data) {
+                    const [x, y] = d3.mouse(svg.node());
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9)
+                        .style("top", (y) + "py")
+                        .style("left", (x) + "px");
+                    tooltip.html(`<strong>Author ID:</strong> ${d.id}`)
+
+                })
+                .on("mousemove", (m, d) => {
+                    tooltip.style("opacity", .9)
+                })
+                .on("mouseout", function (d) {
+                    tooltip.transition()
+                        .duration(400)
+                        .style("opacity", 0)
+                    d3.selectAll("title").text(" ")
+                    d3.selectAll(".inactive").classed("inactive", false)
+                })
+
+
+            node_elements.append("circle")
+                .attr("r", (d, i) => { return scale_radius(node_degree[d['id']] * 1.2) })
+                .attr("fill", (d, i) => color(countries[i]));
+
+            node_elements.append("text")
+                .attr("class", "title")
+                .attr("text-anchor", "middle")
+                .text(d => d.title)
+
+            const legend = svg.append("g")
+                .attr("class", "legend")
+                .attr("transform", "translate(20,20)");
+
+            const legendRectSize = 18;
+            const legendSpacing = 25;
+            const legendXOffset = -200;
+
+            const legendItems = legend.selectAll('.legend-item')
+                .data(color.domain())
+                .enter()
+                .append('g')
+                .attr('class', 'legend-item')
+                .attr('transform', (d, i) => `translate(${legendXOffset}, ${i * (legendRectSize + legendSpacing)})`);
+
+            legendItems.append('circle')
+                .attr('r', legendRectSize / 2 + 3)
+                .style('fill', 'none')
+                .style('stroke', 'black');
+
+            legendItems.append('circle')
+                .attr('r', legendRectSize / 2)
+                .style('fill', color);
+
+            legendItems.append('text')
+                .attr('x', legendRectSize + legendSpacing)
+                .attr('y', legendRectSize / 2)
+                .style('fill', 'black')
+                .style('font-size', '45px')
+                .text(d => d);
+
+
+            ForceSimulation = d3.forceSimulation(data.nodes)
+                .force("collide",
+                    d3.forceCollide().radius((d, i) => { return scale_radius(node_degree[i]) * 5 }).strength(0))
+                .force("x", d3.forceX())
+                .force("y", d3.forceY())
+                .force("charge", d3.forceManyBody().strength(-80))
+                .force("link", d3.forceLink(data.links)
+                    .id(d => d.id)
+                    .distance(80)
+                    .strength(1)
+                )
+                .on("tick", ticked);
+
+
+            function ticked() {
+                node_elements.attr('transform', (d) => `translate(${d.x},${d.y})`)
+                link_elements
+                    .attr("x1", d => d.source.x)
+                    .attr("x2", d => d.target.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("y2", d => d.target.y)
+            }
+            function dragstarted(d) {
+                if (!d3.event.active) ForceSimulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(d) {
+                d.fx = d3.event.x;
+                d.fy = d3.event.y;
+            }
+
+            function dragended(d) {
+                if (!d3.event.active) ForceSimulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        });
+
+    </script>
+</body>
+
+</html>
